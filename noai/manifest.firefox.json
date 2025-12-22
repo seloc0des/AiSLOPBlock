@@ -1,0 +1,44 @@
+{
+  "manifest_version": 2,
+  "name": "NoAI Slop Cleaner",
+  "version": "0.2.0",
+  "description": "Hides AI panels and AI-themed ads, and blocks known AI-slop domains.",
+  "permissions": [
+    "storage",
+    "alarms",
+    "webRequest",
+    "webRequestBlocking",
+    "<all_urls>"
+  ],
+  "background": {
+    "scripts": ["sw.js"],
+    "persistent": true
+  },
+  "browser_action": {
+    "default_popup": "ui/popup.html"
+  },
+  "options_ui": {
+    "page": "ui/options.html",
+    "browser_style": true
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "noai-slop-cleaner@example.com",
+      "strict_min_version": "115.0"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "css": ["styles/early-block.css"],
+      "js": [
+        "cleaners/google-cleaner.js",
+        "cleaners/facebook-cleaner.js",
+        "cleaners/news-cleaner.js",
+        "cleaners/youtube-cleaner.js",
+        "content.js"
+      ],
+      "run_at": "document_start"
+    }
+  ]
+}
