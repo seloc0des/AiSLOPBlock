@@ -1,0 +1,32 @@
+:root {
+  --noai-block-color: #0f0f0f;
+}
+
+/* Hide obvious AI badges/panels before DOM scripts execute */
+[data-ai],
+[data-ai-generated],
+[aria-label*="AI" i],
+[aria-label*="artificial intelligence" i],
+[class*="ai-overview" i],
+[class*="ai-summary" i],
+[class*="ask-ai" i],
+[data-testid="ai-answer"],
+[data-component-type*="generative" i],
+[data-answer-type*="generative" i] {
+  display: none !important;
+  visibility: hidden !important;
+}
+
+/* Neutralize shimmer/typing indicators commonly used by AI panels */
+[class*="typing" i],
+[class*="shimmer" i],
+[class*="skeleton" i] {
+  animation: none !important;
+  opacity: 0 !important;
+}
+
+/* Ensure hidden elements do not leave layout gaps */
+.noai-hidden-block,
+[data-noai-hidden="1"] {
+  display: none !important;
+}

@@ -6,6 +6,39 @@
 
 // Import DNR manager logic (embedded here for simplicity)
 const DNR_RULE_ID_PREFIX = 10000;
+const CROWD_THRESHOLD = 5;
+const HEADER_BLOCK_THRESHOLD = 3;
+const REMOTE_BLOCKLIST_DEFAULT_URL =
+  "https://raw.githubusercontent.com/seloc0des/AiSLOPBlock/main/noai/dnr-domains.txt";
+const REMOTE_SYNC_ALARM = "noai:remote-dnr-sync";
+const REMOTE_SYNC_PERIOD_MINUTES = 60 * 24 * 7;
+const CROWD_REPORT_ENDPOINT = "https://noai-community.seloc0des.com/report";
+const STREAM_PATH_PATTERNS = [/\/v1\/chat\/completions/i, /\/askai(\/|$)/i, /\/ai\/generate/i];
+const STREAM_CONTENT_TYPE_PATTERNS = [/text\/event-stream/i, /application\/json(l)?/i];
+const RESPONSE_HEADER_SUSPECT_NAMES = new Set([
+  "x-openai-model",
+  "x-meta-ai-model",
+  "x-ai-model",
+  "x-generated-by",
+  "x-ai-generated",
+  "x-model",
+  "openai-model",
+  "anthropic-version"
+]);
+const RESPONSE_HEADER_VALUE_PATTERNS = [
+  /gpt/i,
+  /claude/i,
+  /midjourney/i,
+  /stable.diffusion/i,
+  /llama/i,
+  /gemini/i,
+  /sonnet/i,
+  /mistral/i
+];
+
+let detectionCounts = new Map();
+let detectionCountsLoaded = false;
+let flaggedHosts = new Set();
 
 function parseDomainsToDNRRules(domainListText) {
   const domains = domainListText
@@ -65,6 +98,7 @@ const DEFAULTS = {
   adPhrases: ["sponsored", "promoted", "ad", "paid partnership", "advertisement"],
   disabledHosts: [],
   perSiteEnabled: {},
+  remoteBlocklistUrl: REMOTE_BLOCKLIST_DEFAULT_URL,
   dnrDomainList: `# Known AI content farms
 writesonic.com
 copy.ai
@@ -81,6 +115,7 @@ contentstudio.io
 };
 
 const hiddenCountByTab = new Map();
+const autoFlaggedHosts = new Set();
 
 // ============================================
 // Extension lifecycle
@@ -105,6 +140,21 @@ chrome.runtime.onInstalled.addListener(async () => {
 
   // Initialize DNR rules
   await updateDNRRulesFromStorage();
+
+  // Prime caches and schedule sync
+  await refreshFlaggedHostsFromStorage();
+  scheduleRemoteSync();
+  await syncRemoteBlocklist();
+});
+
+chrome.runtime.onStartup?.addListener(() => {
+  scheduleRemoteSync();
+});
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === REMOTE_SYNC_ALARM) {
+    syncRemoteBlocklist();
+  }
 });
 
 // ============================================
@@ -131,7 +181,27 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
   if (msg?.type === "noai:dnr-update") {
     updateDNRRulesFromStorage();
   }
+
+  if (msg?.type === "noai:ai-panel-observed" && msg.host) {
+    recordCrowdDetection(msg.host, msg.reason || "behavioral", msg.meta);
+  }
 });
+
+// ============================================
+// Response/Header interception
+// ============================================
+
+chrome.webRequest.onHeadersReceived.addListener(
+  (details) => handleHeaders(details),
+  { urls: ["<all_urls>"] },
+  ["blocking", "responseHeaders"]
+);
+
+chrome.webRequest.onBeforeRequest.addListener(
+  (details) => handleBeforeRequest(details),
+  { urls: ["<all_urls>"] },
+  ["blocking"]
+);
 
 // ============================================
 // Cleanup
@@ -140,3 +210,217 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
 chrome.tabs.onRemoved.addListener((tabId) => {
   hiddenCountByTab.delete(tabId);
 });
+
+// ============================================
+// Helper utilities
+// ============================================
+
+function sanitizeHost(host) {
+  return (host || "").toLowerCase().replace(/^\*\./, "");
+}
+
+function parseDomainListText(listText = "") {
+  return listText
+    .split("\n")
+    .map((line) => line.trim().toLowerCase())
+    .filter((line) => line && !line.startsWith("#"));
+}
+
+async function refreshFlaggedHostsFromStorage() {
+  const { dnrDomainList = "" } = await chrome.storage.sync.get(["dnrDomainList"]);
+  flaggedHosts = new Set(parseDomainListText(dnrDomainList));
+}
+
+function scheduleRemoteSync() {
+  chrome.alarms.create(REMOTE_SYNC_ALARM, {
+    periodInMinutes: REMOTE_SYNC_PERIOD_MINUTES,
+    when: Date.now() + 1000 * 60 * 5
+  });
+}
+
+async function syncRemoteBlocklist() {
+  try {
+    const { remoteBlocklistUrl = REMOTE_BLOCKLIST_DEFAULT_URL } = await chrome.storage.sync.get([
+      "remoteBlocklistUrl"
+    ]);
+    if (!remoteBlocklistUrl) return;
+
+    const resp = await fetch(remoteBlocklistUrl, { cache: "no-store" });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const text = await resp.text();
+    await mergeRemoteDomains(text);
+  } catch (err) {
+    console.warn("[DNR Manager] Remote sync failed:", err.message);
+  }
+}
+
+async function mergeRemoteDomains(remoteText) {
+  const remoteDomains = parseDomainListText(remoteText);
+  if (!remoteDomains.length) return;
+  const { dnrDomainList = "" } = await chrome.storage.sync.get(["dnrDomainList"]);
+  const localDomains = new Set(parseDomainListText(dnrDomainList));
+
+  let changed = false;
+  for (const domain of remoteDomains) {
+    if (!localDomains.has(domain)) {
+      localDomains.add(domain);
+      changed = true;
+    }
+  }
+
+  if (!changed) return;
+
+  const nextText = Array.from(localDomains).sort().join("\n") + "\n";
+  await chrome.storage.sync.set({ dnrDomainList: nextText });
+  await updateDNRRulesFromStorage();
+  await refreshFlaggedHostsFromStorage();
+}
+
+async function ensureDetectionCountsLoaded() {
+  if (detectionCountsLoaded) return;
+  const { detectionCounts: stored = {} } = await chrome.storage.local.get(["detectionCounts"]);
+  detectionCounts = new Map(Object.entries(stored || {}));
+  detectionCountsLoaded = true;
+}
+
+async function persistDetectionCounts() {
+  const obj = {};
+  detectionCounts.forEach((value, key) => {
+    obj[key] = value;
+  });
+  await chrome.storage.local.set({ detectionCounts: obj });
+}
+
+async function recordCrowdDetection(host, reason, meta) {
+  const sanitized = sanitizeHost(host);
+  if (!sanitized) return;
+  await ensureDetectionCountsLoaded();
+  const key = `${sanitized}:${reason}`;
+  const next = (detectionCounts.get(key) || 0) + 1;
+  detectionCounts.set(key, next);
+  await persistDetectionCounts();
+
+  if (next >= CROWD_THRESHOLD && !flaggedHosts.has(sanitized)) {
+    await flagHostAsAISource(sanitized, reason, meta);
+  }
+}
+
+async function flagHostAsAISource(host, reason, meta) {
+  flaggedHosts.add(host);
+  autoFlaggedHosts.add(host);
+  const added = await ensureDomainInDnrList(host);
+  if (added) {
+    console.log(`[NoAI] Crowd elevated ${host} to DNR via ${reason}.`);
+  }
+
+  if (CROWD_REPORT_ENDPOINT) {
+    try {
+      await fetch(CROWD_REPORT_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ host, reason, meta, timestamp: Date.now() })
+      });
+    } catch (err) {
+      console.warn("[NoAI] Crowd report failed:", err.message);
+    }
+  }
+}
+
+async function ensureDomainInDnrList(domain) {
+  const sanitized = sanitizeHost(domain);
+  if (!sanitized) return false;
+  const { dnrDomainList = "" } = await chrome.storage.sync.get(["dnrDomainList"]);
+  const existing = new Set(parseDomainListText(dnrDomainList));
+  if (existing.has(sanitized)) return false;
+  existing.add(sanitized);
+  const nextText = Array.from(existing).sort().join("\n") + "\n";
+  await chrome.storage.sync.set({ dnrDomainList: nextText });
+  await updateDNRRulesFromStorage();
+  await refreshFlaggedHostsFromStorage();
+  return true;
+}
+
+function isStreamRequest(details) {
+  if (!details || !details.type) return false;
+  if (["xmlhttprequest", "fetch", "other"].includes(details.type)) {
+    if (STREAM_PATH_PATTERNS.some((regex) => regex.test(details.url))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function analyzeHeaders(responseHeaders = []) {
+  let hits = 0;
+  let shouldBlock = false;
+  for (const header of responseHeaders) {
+    if (!header || !header.name) continue;
+    const name = header.name.toLowerCase();
+    const value = (header.value || "").toLowerCase();
+
+    if (RESPONSE_HEADER_SUSPECT_NAMES.has(name)) {
+      hits++;
+      if (["x-openai-model", "x-model", "openai-model"].includes(name)) {
+        shouldBlock = true;
+      }
+    }
+
+    if (value) {
+      if (RESPONSE_HEADER_VALUE_PATTERNS.some((regex) => regex.test(value))) {
+        hits++;
+        if (/gpt|claude|gemini|llama/.test(value)) {
+          shouldBlock = true;
+        }
+      }
+
+      if (STREAM_CONTENT_TYPE_PATTERNS.some((regex) => regex.test(value))) {
+        shouldBlock = true;
+      }
+    }
+  }
+
+  return { hits, shouldBlock };
+}
+
+function handleHeaders(details) {
+  try {
+    const url = new URL(details.url);
+    const host = url.hostname;
+    const { hits, shouldBlock } = analyzeHeaders(details.responseHeaders || []);
+
+    if (!hits) return {};
+
+    recordCrowdDetection(host, "response-header");
+
+    if (hits >= HEADER_BLOCK_THRESHOLD || shouldBlock) {
+      console.log("[NoAI] Blocking response from", host, "due to AI headers.");
+      return { cancel: true };
+    }
+  } catch (err) {
+    console.warn("[NoAI] Header handler error:", err.message);
+  }
+  return {};
+}
+
+function shouldBlockHost(host) {
+  const sanitized = sanitizeHost(host);
+  if (!sanitized) return false;
+  if (flaggedHosts.has(sanitized)) return true;
+  return false;
+}
+
+function handleBeforeRequest(details) {
+  try {
+    const url = new URL(details.url);
+    const host = url.hostname;
+
+    if (shouldBlockHost(host) || isStreamRequest(details)) {
+      recordCrowdDetection(host, "stream-intercept");
+      console.log("[NoAI] Blocking streaming request to", host);
+      return { cancel: true };
+    }
+  } catch (err) {
+    console.warn("[NoAI] Stream handler error:", err.message);
+  }
+  return {};
+}
