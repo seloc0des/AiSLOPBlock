@@ -7,7 +7,7 @@
 // Import DNR manager logic (embedded here for simplicity)
 const DNR_RULE_ID_PREFIX = 10000;
 const CROWD_THRESHOLD = 5;
-const HEADER_BLOCK_THRESHOLD = 3;
+const HEADER_PROMOTE_THRESHOLD = 3;
 const REMOTE_BLOCKLIST_DEFAULT_URL =
   "https://raw.githubusercontent.com/seloc0des/AiSLOPBlock/main/noai/dnr-domains.txt";
 const REMOTE_SYNC_ALARM = "noai:remote-dnr-sync";
@@ -188,19 +188,22 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
 });
 
 // ============================================
-// Response/Header interception
+// Response/Header observation (non-blocking)
 // ============================================
 
 chrome.webRequest.onHeadersReceived.addListener(
-  (details) => handleHeaders(details),
+  (details) => {
+    handleHeaders(details);
+  },
   { urls: ["<all_urls>"] },
-  ["blocking", "responseHeaders"]
+  ["responseHeaders"]
 );
 
 chrome.webRequest.onBeforeRequest.addListener(
-  (details) => handleBeforeRequest(details),
-  { urls: ["<all_urls>"] },
-  ["blocking"]
+  (details) => {
+    handleBeforeRequest(details);
+  },
+  { urls: ["<all_urls>"] }
 );
 
 // ============================================
@@ -388,18 +391,17 @@ function handleHeaders(details) {
     const host = url.hostname;
     const { hits, shouldBlock } = analyzeHeaders(details.responseHeaders || []);
 
-    if (!hits) return {};
+    if (!hits) return;
 
     recordCrowdDetection(host, "response-header");
 
-    if (hits >= HEADER_BLOCK_THRESHOLD || shouldBlock) {
-      console.log("[NoAI] Blocking response from", host, "due to AI headers.");
-      return { cancel: true };
+    if (hits >= HEADER_PROMOTE_THRESHOLD || shouldBlock) {
+      console.log("[NoAI] Flagging", host, "due to AI headers.");
+      ensureDomainInDnrList(host);
     }
   } catch (err) {
     console.warn("[NoAI] Header handler error:", err.message);
   }
-  return {};
 }
 
 function shouldBlockHost(host) {
@@ -413,14 +415,13 @@ function handleBeforeRequest(details) {
   try {
     const url = new URL(details.url);
     const host = url.hostname;
+    const looksLikeStream = isStreamRequest(details);
 
-    if (shouldBlockHost(host) || isStreamRequest(details)) {
-      recordCrowdDetection(host, "stream-intercept");
-      console.log("[NoAI] Blocking streaming request to", host);
-      return { cancel: true };
+    if (shouldBlockHost(host) || looksLikeStream) {
+      recordCrowdDetection(host, looksLikeStream ? "stream-intercept" : "dnr-preblock");
+      ensureDomainInDnrList(host);
     }
   } catch (err) {
     console.warn("[NoAI] Stream handler error:", err.message);
   }
-  return {};
 }

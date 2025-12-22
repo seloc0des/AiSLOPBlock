@@ -7,8 +7,7 @@
     "storage",
     "declarativeNetRequest",
     "alarms",
-    "webRequest",
-    "webRequestBlocking"
+    "webRequest"
   ],
   "host_permissions": ["<all_urls>"],
   "background": { "service_worker": "sw.js", "type": "module" },
