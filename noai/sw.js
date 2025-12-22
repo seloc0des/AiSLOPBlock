@@ -15,6 +15,13 @@ const REMOTE_SYNC_PERIOD_MINUTES = 60 * 24 * 7;
 const CROWD_REPORT_ENDPOINT = ""; // Disabled until real endpoint is available
 const STREAM_PATH_PATTERNS = [/\/v1\/chat\/completions/i, /\/askai(\/|$)/i, /\/ai\/generate/i];
 const STREAM_CONTENT_TYPE_PATTERNS = [/text\/event-stream/i, /application\/json(l)?/i];
+const HAS_DECLARATIVE_NET_REQUEST =
+  typeof chrome !== "undefined" && !!chrome.declarativeNetRequest?.updateDynamicRules;
+const MANUAL_BLOCKING_SUPPORTED =
+  typeof chrome !== "undefined" &&
+  !!chrome.webRequest?.onBeforeRequest &&
+  typeof chrome.webRequest.onBeforeRequest.addListener === "function" &&
+  !HAS_DECLARATIVE_NET_REQUEST;
 const RESPONSE_HEADER_SUSPECT_NAMES = new Set([
   "x-openai-model",
   "x-meta-ai-model",
@@ -58,6 +65,11 @@ function parseDomainsToDNRRules(domainListText) {
 }
 
 async function updateDNRRulesFromStorage() {
+  if (!HAS_DECLARATIVE_NET_REQUEST) {
+    await refreshFlaggedHostsFromStorage();
+    console.log("[DNR Manager] declarativeNetRequest unavailable; using manual blocker.");
+    return;
+  }
   try {
     const { dnrDomainList = "" } = await chrome.storage.sync.get(["dnrDomainList"]);
 
@@ -199,12 +211,16 @@ chrome.webRequest.onHeadersReceived.addListener(
   ["responseHeaders"]
 );
 
-chrome.webRequest.onBeforeRequest.addListener(
-  (details) => {
-    handleBeforeRequest(details);
-  },
-  { urls: ["<all_urls>"] }
-);
+if (chrome.webRequest?.onBeforeRequest) {
+  const extraInfo = MANUAL_BLOCKING_SUPPORTED ? ["blocking"] : [];
+  chrome.webRequest.onBeforeRequest.addListener(
+    (details) => {
+      return handleBeforeRequest(details);
+    },
+    { urls: ["<all_urls>"] },
+    extraInfo
+  );
+}
 
 // ============================================
 // Cleanup
@@ -275,7 +291,9 @@ async function mergeRemoteDomains(remoteText) {
 
   const nextText = Array.from(localDomains).sort().join("\n") + "\n";
   await chrome.storage.sync.set({ dnrDomainList: nextText });
-  await updateDNRRulesFromStorage();
+  if (HAS_DECLARATIVE_NET_REQUEST) {
+    await updateDNRRulesFromStorage();
+  }
   await refreshFlaggedHostsFromStorage();
 }
 
@@ -338,7 +356,9 @@ async function ensureDomainInDnrList(domain) {
   existing.add(sanitized);
   const nextText = Array.from(existing).sort().join("\n") + "\n";
   await chrome.storage.sync.set({ dnrDomainList: nextText });
-  await updateDNRRulesFromStorage();
+  if (HAS_DECLARATIVE_NET_REQUEST) {
+    await updateDNRRulesFromStorage();
+  }
   await refreshFlaggedHostsFromStorage();
   return true;
 }
@@ -420,8 +440,12 @@ function handleBeforeRequest(details) {
     if (shouldBlockHost(host) || looksLikeStream) {
       recordCrowdDetection(host, looksLikeStream ? "stream-intercept" : "dnr-preblock");
       ensureDomainInDnrList(host);
+      if (MANUAL_BLOCKING_SUPPORTED) {
+        return { cancel: true };
+      }
     }
   } catch (err) {
     console.warn("[NoAI] Stream handler error:", err.message);
   }
+  return {};
 }
