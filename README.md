@@ -34,7 +34,7 @@ noai/
 1. **Load unpacked**
    - Chrome / Brave / Edge → `chrome://extensions`
    - Enable *Developer mode* → *Load unpacked* → select the `noai/` folder.
-2. **Grant permissions:** Browser will prompt for storage + DNR access; accept to enable blocking.
+2. **Grant permissions:** Chrome will warn about `storage`, `declarativeNetRequest`, `alarms`, and `webRequest`/`webRequestBlocking`. These are required for the network blocklist, periodic sync, and AI-header interception (explained below). Approve the prompt to finish loading.
 3. **Verify install:** The toolbar icon should appear. Click it to see the popup controls.
 
 ## Customization
@@ -47,6 +47,19 @@ noai/
   - **Network blocking (DNR domains)** – paste domains (one per line, `#` comments allowed) to block entirely.
 - Click **Save All Settings**. The service worker automatically re-generates DNR rules and you’ll see a ✓ confirmation.
 - Use the popup to disable/enable globally, toggle the current site, or temporarily show hidden cards.
+
+## Permissions Explained
+
+When you load the unpacked build, Chrome shows a permission review dialog. Each permission maps to a specific feature:
+
+| Permission | Why it’s needed |
+|------------|-----------------|
+| `storage` | Persist keywords, disclosure phrases, and the editable DNR domain list. |
+| `declarativeNetRequest` | Convert the domain list into blocking rules so AI-slop domains never load. |
+| `alarms` | Schedule the weekly remote blocklist sync without running a background page 24/7. |
+| `webRequest` + `webRequestBlocking` | Inspect response headers (e.g., `X-Model`) and cancel AI API streams before they render. |
+
+All network inspection is local-only—no telemetry leaves the device unless you point the service worker at your own reporting endpoint.
 
 ## Development notes
 

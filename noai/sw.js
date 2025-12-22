@@ -12,7 +12,7 @@ const REMOTE_BLOCKLIST_DEFAULT_URL =
   "https://raw.githubusercontent.com/seloc0des/AiSLOPBlock/main/noai/dnr-domains.txt";
 const REMOTE_SYNC_ALARM = "noai:remote-dnr-sync";
 const REMOTE_SYNC_PERIOD_MINUTES = 60 * 24 * 7;
-const CROWD_REPORT_ENDPOINT = "https://noai-community.seloc0des.com/report";
+const CROWD_REPORT_ENDPOINT = ""; // Disabled until real endpoint is available
 const STREAM_PATH_PATTERNS = [/\/v1\/chat\/completions/i, /\/askai(\/|$)/i, /\/ai\/generate/i];
 const STREAM_CONTENT_TYPE_PATTERNS = [/text\/event-stream/i, /application\/json(l)?/i];
 const RESPONSE_HEADER_SUSPECT_NAMES = new Set([
