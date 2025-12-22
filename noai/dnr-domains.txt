@@ -1,0 +1,34 @@
+# NoAI Slop Cleaner - Dynamic DNR Domain Blocklist
+# Format: one domain per line (domain.tld)
+# These will be converted to declarativeNetRequest rules
+# Last updated: 2025-12-22
+
+# Known AI content farms & low-quality AI-generated content sites
+writesonic.com
+copy.ai
+jasper.ai
+rytr.me
+anyword.com
+bertiecode.com
+essaybot.com
+ai-writer.com
+smodin.io
+spinbot.com
+paraphrasebot.com
+quillbot.com
+contentstudio.io
+clipfly.net
+toolbaz.com
+generatorbox.com
+content-generator.com
+textbrewer.com
+
+# Known slop aggregators (often repackage AI-generated content)
+medium-clone-farms.com
+ezoic-network-sites.com
+newsblog.ai
+contently-ai.com
+
+# Low-quality AI ad networks (if you want to block click-tracking)
+ai-ads-tracker.com
+synthetic-ads.net

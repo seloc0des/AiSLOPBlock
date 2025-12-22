@@ -1,0 +1,35 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body {
+        font: 13px system-ui, sans-serif;
+        margin: 12px;
+        width: 260px;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin: 8px 0;
+      }
+      button {
+        width: 100%;
+        padding: 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="row">
+      <div>Enabled</div>
+      <input id="enabled" type="checkbox" />
+    </div>
+    <div class="row">
+      <div>Hide on this site</div>
+      <input id="siteEnabled" type="checkbox" />
+    </div>
+    <button id="showHidden">Show hidden items</button>
+    <script src="popup.js"></script>
+  </body>
+</html>
