@@ -1,6 +1,7 @@
 # NoAI Slop Blocker Extension
 
-> Chromium extension that hides AI-themed slop (ads, widgets, disclosures) and blocks low-quality AI domains at the network layer.
+> Chromium/Firefox extension that hides AI-themed slop (ads, widgets, disclosures) and blocks low-quality AI domains at the network layer.
+> Customizable with locations for you to add more to your blocklist as new slop appears.
 
 ## Features
 
