@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "NoAI Slop Cleaner",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Hides AI panels and AI-themed ads, and blocks known AI-slop domains.",
   "permissions": [
     "storage",

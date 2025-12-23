@@ -25,16 +25,37 @@ const PLATFORM_MARKERS = [
   { name: "NewsGenericCleaner", selector: '[aria-label*="Ask AI"], [class*="ai-summary"], [class*="ai-generated"]' }
 ];
 
+const GENERIC_SCAN_EXCLUSIONS = [
+  "youtube.com",
+  "www.youtube.com",
+  "m.youtube.com",
+  "music.youtube.com"
+];
+
 function norm(s) {
   return (s || "").toLowerCase().trim();
 }
 
+function escapeRegExp(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function containsAny(haystack, needles) {
-  const h = norm(haystack);
+  const source = haystack || "";
+  const normalizedHaystack = norm(source);
+
   for (const n of needles) {
-    const nn = norm(n);
-    if (nn.length >= STOP_WORDS_MIN_LEN && h.includes(nn)) return true;
+    const normalizedNeedle = norm(n);
+    if (normalizedNeedle.length < STOP_WORDS_MIN_LEN) continue;
+
+    if (normalizedNeedle.length <= 3) {
+      const regex = new RegExp(`\\b${escapeRegExp(normalizedNeedle)}\\b`, "i");
+      if (regex.test(source)) return true;
+    } else if (normalizedHaystack.includes(normalizedNeedle)) {
+      return true;
+    }
   }
+
   return false;
 }
 
@@ -202,6 +223,7 @@ function scanNodeGeneric(node, aiKeywords, disclosurePhrases, adPhrases, notifyD
 
 (async function main() {
   const host = location.hostname;
+  const skipGenericScan = GENERIC_SCAN_EXCLUSIONS.some((domain) => host === domain || host.endsWith(`.${domain}`));
 
   const {
     enabled,
@@ -266,7 +288,10 @@ function scanNodeGeneric(node, aiKeywords, disclosurePhrases, adPhrases, notifyD
 
   // Main scanning function
   function scanNode(node) {
-    const hiddenCount = scanNodeGeneric(node, aiKeywords, disclosurePhrases, adPhrases, notifyDetection);
+    let hiddenCount = 0;
+    if (!skipGenericScan) {
+      hiddenCount = scanNodeGeneric(node, aiKeywords, disclosurePhrases, adPhrases, notifyDetection);
+    }
 
     // If site-specific cleaner exists, also run it
     if (siteSpecificCleaner && siteSpecificCleaner.clean) {
