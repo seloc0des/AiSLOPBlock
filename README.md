@@ -1,3 +1,5 @@
+It seems I was too broad when it came to identifying Ai Slop and it blocks content from appearing on the YouTube home page. Could be in other places as well.***
+
 # NoAI Slop Blocker Extension
 
 > Chromium/Firefox extension that hides AI-themed slop (ads, widgets, disclosures) and blocks low-quality AI domains at the network layer.
