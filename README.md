@@ -34,6 +34,10 @@ noai/
 1. **Load unpacked**
    - Chrome / Brave / Edge → `chrome://extensions`
    - Enable *Developer mode* → *Load unpacked* → select the `noai/` folder.
+2. **Firefox (MV2 fallback)**
+   - Go to `about:debugging#/runtime/this-firefox`.
+   - Click **Load Temporary Add-on…** and pick `noai/manifest.firefox.json`.
+   - Firefox still runs Manifest V2, so this alternate manifest swaps in `background.scripts` and a persistent worker—loading the MV3 `manifest.json` will trigger the “background.service_worker is currently disabled” warning.
 2. **Grant permissions:** Chrome will warn about `storage`, `declarativeNetRequest`, `alarms`, and `webRequest`/`webRequestBlocking`. These are required for the network blocklist, periodic sync, and AI-header interception (explained below). Approve the prompt to finish loading.
 3. **Verify install:** The toolbar icon should appear. Click it to see the popup controls.
 
